@@ -1,0 +1,133 @@
+---
+title: "Polling Data from NC's 9th Congressional District"
+author: "Stephanie Yao"
+date: "February 25, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(gt)
+library(ggstance)
+```
+
+```{r read_data, include=FALSE}
+elections <- read_csv("ps_4_elections-poll-nc09-3.csv",
+                      col_types = cols(
+                        .default = col_character(),
+                        turnout_scale = col_double(),
+                        turnout_score = col_double(),
+                        w_LV = col_double(),
+                        w_RV = col_double(),
+                        final_weight = col_double(),
+                        timestamp = col_datetime(format = "")))
+```
+
+
+```{r make_table, echo=FALSE}
+# this chunk of code makes the table for question 2 using the gt package. First, I selected the 
+# relevant columns required to replicate the table using select(). Then, I grouped by the variables we 
+# want to look at and compare, which are the race of the poll respondent (race_eth) and the party 
+# they indicated support for (response). I summarized and summed the final_weight into a variable 
+# called total because final_weight is the poll weight that was used to calculate the percentages in 
+# the reference chart, and summing them will total up the poll weight for each race group because we 
+# used group_by above. I filtered out responses with NA and race entries where the respondent refused 
+# to answer. I used spread to clean up and organize the data. Replace_na replaces values in the table 
+# with NA with zero instead. This is important because if we don't do this, the mutates we do later on 
+# will just result in NA if something contains a NA. I used mutate to create a variable called "all" 
+# which is the total number of poll respondents who we didn't filter out (the '3' group seems to be a 
+# third party). Then I used mutate to calculate the percentages for each party and store them in 
+# the variables "Dem", "Rep", and "Und". I use select to remove "total" and '3' from appearing in the 
+# table. Then I ungroup and use mutate and factor to reorder the race groups, and arrange by race. I 
+# create the actual table by calling gt and specifying the title and labels. I use fmt_percent to 
+# add percent signs to the values in the table, and I convert the 0 value back into NA so that I can
+# use fmt_missing to format the NA with a dash. Finally, I add a caption with the source.
+elections %>%
+  select(response, final_weight, race_eth) %>%
+  group_by(race_eth, response) %>%
+  summarize(total = sum(final_weight)) %>%
+  filter(!is.na(response)) %>%
+  filter(race_eth != "[DO NOT READ] Don't know/Refused") %>%
+  spread(key = response, value = total) %>%
+  replace_na(list(Und = 0, `3` = 0)) %>%
+  mutate(all = Dem + Rep + Und + `3`) %>% 
+  mutate(Dem = Dem / all) %>% 
+  mutate(Rep = Rep / all) %>% 
+  mutate(Und = Und / all) %>%
+  select(-all, -`3`) %>% 
+  ungroup() %>%
+  mutate(race_eth = factor(race_eth, levels = c("White", "Black", "Hispanic", "Asian",
+                                "Other"))) %>%
+  arrange(race_eth) %>%
+  gt() %>%
+    tab_header(title = "Polling results from NC 9th Congressional District") %>%
+    cols_label(
+      race_eth = "",
+      Dem = "DEM.",
+      Rep = "REP.",
+      Und = "UND."
+    ) %>%
+  fmt_percent(columns = vars(Dem, Rep, Und), decimals = 0) %>%
+  na_if(0) %>%
+  fmt_missing(columns = vars(Und), rows = 4) %>%
+  tab_source_note("Source: New York Times Upshot/Siena College 2018 live polls")
+```
+
+
+```{r make_violin, echo=FALSE}
+# This chunk makes the plot for question 3. I select the relevant variables, filter out rows where 
+# respondents didn't provide their education level, and use mutate and fct_relevel to reorder the 
+# appearance of the categories on the y-axis to match the reference plot. I call ggplot and use 
+# geom_violinh to create the plot. geom_violinh is from the ggstance package I imported in the "setup" 
+# chunk of code, it helps create the horizontal violin plots. I fill with white to color the violin 
+# shapes. geom_jitter adds the black data points on top of the violin shapes, and I change alpha to 0.3 
+# so we can see the overlap, and decrease the height to vertically compress the spread of the points. 
+# Finally, I add the correct labels.
+elections %>%
+  select(educ, final_weight) %>%
+  filter(educ != "[DO NOT READ] Refused") %>%
+  mutate(educ = fct_relevel(educ, "Grade school", "High school",
+                            "Some college or trade school", "Bachelors' degree",
+                            "Graduate or Professional Degree")) %>%
+  ggplot(aes(x = final_weight, y = educ)) +
+  geom_violinh(fill = 'white') +
+  geom_jitter(alpha = 0.3, height = 0.2) +
+  labs(title = "More Educated Matter Less in North Carolina 9th",
+       subtitle = "Poll gives more weight to people who are less likely to participate in polls",
+       caption = "New York Times Upshot/Siena College 2018 live polls") +
+  xlab("Weight Given to Respondent in Calculating Poll Results") +
+  ylab(NULL)
+```
+
+
+```{r make_bar_graph, echo=FALSE}
+# I decided to make a plot showing the party identifications of the different age ranges. 
+# I thought it would be interesting to see which age ranges tended to support which party more, and thought
+# faceting by age group would be a good way to display this data. I selected the relevant variables 
+# using select(), filtered out rows where people didn't provide the requested information, grouped by age 
+# range and party ID, and used summarize to count the total number of people per age range per party ID. 
+# I use mutate and fct_relevel to reorder the parties in the way that makes the most sense to me, 
+# then ggplot it. I fill by partyid in the aesthetics so we could tell the distinction between parties 
+# more easily. I then created the bar graph using geom_col(), facet wrapped by age range, added the 
+# correct labels in the correct order, and removed the legend. For the source, I used the same one as 
+# for question 3 since it came from the same source of data. I thought it was unnecessary to color the
+# bars corresponding to their party colors because Independent and Other don't have their own colors.
+elections %>%
+  select(ager, partyid) %>%
+  filter(ager != "[DO NOT READ] Refused", partyid != "[DO NOT READ] Refused") %>%
+  group_by(ager, partyid) %>%
+  summarize(total = n()) %>%
+  mutate(partyid = fct_relevel(partyid, "Democrat", "Republican", "Independent (No party)", "or as a member of another political party")) %>%
+  ggplot(aes(x = partyid, y = total, fill = partyid)) +
+  geom_col() +
+  facet_wrap(~ager) +
+  xlab("Party ID") +
+  ylab("Number of People") +
+  scale_x_discrete(label = c("Dem.", "Rep.", "Indep.", "Other")) +
+  theme(legend.position = "none") +
+  labs(title = "Party Identification by Age Group",
+       caption = "Source: New York Times Upshot/Siena College 2018 live polls")
+  
+```
